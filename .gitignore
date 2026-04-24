@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Conda / virtual env
+.venv/
+env/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and experiment outputs
+experiments/logs/*
+experiments/results/*
+experiments/figures/*
+
+# Keep directory placeholders
+!experiments/logs/.gitkeep
+!experiments/results/.gitkeep
+!experiments/figures/.gitkeep
+
+# Model weights and caches
+models/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.gguf
+.cache/
+huggingface/
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Environment secrets
+.env
