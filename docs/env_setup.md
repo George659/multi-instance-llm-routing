@@ -11,6 +11,8 @@
 ## Conda Environment
 
 Environment name:
-
-```bash
 pd-router
+
+PyTorch install command:
+```bash
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu128
