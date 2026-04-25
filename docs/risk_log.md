@@ -10,8 +10,8 @@
 
 | Item | Result |
 |---|---|
-| PyTorch CUDA available | TBD |
-| vLLM installed | TBD |
-| vLLM server started | TBD |
-| OpenAI-compatible request succeeded | TBD |
-| Final decision | TBD |
+| PyTorch CUDA available | Yes |
+| vLLM installed | Yes |
+| vLLM server started | Yes |
+| OpenAI-compatible request succeeded | Yes |
+| Final decision | Plan A |
