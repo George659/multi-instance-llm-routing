@@ -1,0 +1,16 @@
+benchmark:
+  seed: 42
+  warmup_requests: 20
+  measured_requests: 200
+
+  arrival:
+    mode: "constant"
+    request_rate: 2.0
+
+  request:
+    stream: true
+    temperature: 0.0
+
+  output:
+    result_csv: "experiments/results/step2_single_instance.csv"
+    summary_json: "experiments/results/step2_summary.json"
