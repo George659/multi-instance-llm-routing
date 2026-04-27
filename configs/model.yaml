@@ -3,3 +3,5 @@ model:
   api_base: "http://127.0.0.1:8000"
   chat_completions_path: "/v1/chat/completions"
   timeout_seconds: 120
+  # tokenizer 与 model 同名；用于 RAG 共享前缀的 token-level 拼接
+  tokenizer_name: "Qwen/Qwen2.5-0.5B-Instruct"

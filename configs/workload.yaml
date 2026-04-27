@@ -1,6 +1,6 @@
 workload:
   seed: 42
-  num_requests: 200
+  num_requests: 1000   # 标准 baseline；smoke 时通过 CLI 覆盖
 
   mix:
     chat: 0.5
@@ -8,23 +8,29 @@ workload:
     agent: 0.2
 
   chat:
-    prompt_words_min: 50
-    prompt_words_max: 200
+    prompt_tokens_min: 60
+    prompt_tokens_max: 250
     max_tokens_min: 50
     max_tokens_max: 128
+    min_tokens: null      # 不强制最小输出
 
   rag:
-    prompt_words_min: 500
-    prompt_words_max: 1500
+    prompt_tokens_min: 600
+    prompt_tokens_max: 1800
     max_tokens_min: 100
     max_tokens_max: 256
+    min_tokens: null
+    # 真正的共享前缀控制（token 级）
     shared_prefix_ratio: 0.5
-    shared_prefix_words: 300
+    shared_prefix_tokens: 400
     num_prefix_groups: 4
 
   agent:
-    prompt_words_min: 200
-    prompt_words_max: 800
-    max_tokens_min: 300
+    prompt_tokens_min: 200
+    prompt_tokens_max: 800
+    max_tokens_min: 400
     max_tokens_max: 800
+    # Agent workload 用于研究长输出对 latency 的影响，
+    # 主实验时建议固定输出长度，避免长度差异污染对比
+    min_tokens: 400
     num_task_templates: 4

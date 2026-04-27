@@ -1,16 +1,31 @@
 benchmark:
   seed: 42
-  warmup_requests: 20
-  measured_requests: 200
+  warmup_requests: 50
+  measured_requests: 1000
+
+  # 样本量保护：summary 在样本不足时标注 P99/P95 不可信
+  min_samples_for_p95: 200
+  min_samples_for_p99: 1000
+
+  # 全局 wall-clock 上限，超过自动停止
+  max_run_duration_sec: 1800   # 30 分钟
 
   arrival:
     mode: "constant"
     request_rate: 2.0
+    # burst 专用，仅在 mode=burst 时使用
+    burst:
+      effective_rate: 2.0      # 等价的平均 req/s（必须显式定义）
+      burst_size: 20
+      burst_interval_sec: 10.0  # 自动派生 intra_burst_gap
 
   request:
     stream: true
+    include_usage: true        # 启用 stream_options.include_usage
     temperature: 0.0
 
   output:
-    result_csv: "experiments/results/step2_single_instance.csv"
-    summary_json: "experiments/results/step2_summary.json"
+    result_csv: "experiments/results/{run_id}_results.csv"
+    summary_json: "experiments/results/{run_id}_summary.json"
+    env_snapshot_json: "experiments/logs/{run_id}_env.json"
+    # run_id 在 runner 中自动生成：timestamp + git_short + config_hash
