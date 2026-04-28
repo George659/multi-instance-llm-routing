@@ -34,6 +34,7 @@ class StreamingChatClient:
         self._client = httpx.AsyncClient(
             base_url=self.api_base,
             timeout=httpx.Timeout(timeout),
+            trust_env=False,
         )
 
     async def __aenter__(self) -> "StreamingChatClient":
@@ -87,11 +88,12 @@ class StreamingChatClient:
                 error_message=str(exc),
             )
         except httpx.HTTPStatusError as exc:
+            error_message = await self._format_http_error(exc)
             return self._build_failed_result(
                 request,
                 result,
                 error_type="http_error",
-                error_message=self._format_http_error(exc),
+                error_message=error_message,
             )
         except httpx.RequestError as exc:
             return self._build_failed_result(
@@ -210,11 +212,18 @@ class StreamingChatClient:
         return int(value)
 
     @staticmethod
-    def _format_http_error(exc: httpx.HTTPStatusError) -> str:
+    async def _format_http_error(exc: httpx.HTTPStatusError) -> str:
         """尽量把 HTTP 错误信息格式化得可读一些。"""
 
         status_code = exc.response.status_code
-        response_text = exc.response.text.strip()
+        response_text = ""
+        try:
+            response_text = (await exc.response.aread()).decode(
+                exc.response.encoding or "utf-8",
+                errors="replace",
+            ).strip()
+        except Exception:
+            response_text = ""
         if response_text:
             return f"HTTP {status_code}: {response_text}"
         return f"HTTP {status_code}: {exc}"

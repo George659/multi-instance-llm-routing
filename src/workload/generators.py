@@ -165,15 +165,15 @@ def render_messages_to_token_ids(
 
     apply_chat_template = getattr(tokenizer, "apply_chat_template", None)
     if callable(apply_chat_template):
-        token_ids = cast(
-            Sequence[int],
+        rendered_text = cast(
+            str,
             apply_chat_template(
-            list(messages),
-            tokenize=True,
-            add_generation_prompt=True,
+                list(messages),
+                tokenize=False,
+                add_generation_prompt=True,
             ),
         )
-        return list(token_ids)
+        return list(tokenizer.encode(rendered_text, add_special_tokens=False))
 
     fallback_text = []
     for message in messages:
@@ -434,10 +434,44 @@ def _build_rag_prefix_state(
 
     state: dict[int, dict[str, Any]] = {}
     for group_id in range(num_groups):
+        prefix_text, rendered_prefix_token_ids = _build_shared_prefix_payload(
+            tokenizer=tokenizer,
+            rng=rng,
+            group_id=group_id,
+            target_shared_prefix_tokens=aligned_shared_prefix_tokens,
+        )
+
+        state[group_id] = {
+            "prefix_text": prefix_text,
+            "shared_prefix_tokens": aligned_shared_prefix_tokens,
+            "rendered_prefix_token_ids": rendered_prefix_token_ids[:aligned_shared_prefix_tokens],
+        }
+
+    return state
+
+
+def _build_shared_prefix_payload(
+    *,
+    tokenizer: TokenizerLike,
+    rng: random.Random,
+    group_id: int,
+    target_shared_prefix_tokens: int,
+) -> tuple[str, list[int]]:
+    """为某个 RAG group 构造稳定共享前缀。
+
+    这里会额外给前缀文本预留一些 token 余量，避免真实 tokenizer 在
+    prefix/query 边界发生 merge 时，把“稳定公共前缀”压缩到目标值以下。
+    """
+
+    safety_margin_steps = [0, 32, 64, 96, 128]
+    last_stable_prefix: list[int] = []
+
+    for margin in safety_margin_steps:
+        prefix_budget = target_shared_prefix_tokens + margin
         base_segment = _build_segment_text(
             tokenizer=tokenizer,
             rng=rng,
-            target_tokens=max(aligned_shared_prefix_tokens * 2, 256),
+            target_tokens=max(prefix_budget * 2, 256),
             context_label=f"rag_group_{group_id}",
         )
         prefix_wrapper = (
@@ -448,29 +482,27 @@ def _build_rag_prefix_state(
         prefix_token_ids = _text_to_exact_token_ids(
             tokenizer=tokenizer,
             text=prefix_wrapper,
-            target_tokens=aligned_shared_prefix_tokens,
+            target_tokens=prefix_budget,
         )
         prefix_text = (
             tokenizer.decode(prefix_token_ids, skip_special_tokens=False)
             + "\n\n以上是共享资料前缀。下面开始给出本次请求的具体问题。\n\n"
         )
 
-        rendered_prefix_token_ids = _render_stable_prompt_prefix_ids(
+        stable_prefix_ids = _render_stable_prompt_prefix_ids(
             tokenizer=tokenizer,
             system_prompt=RAG_SYSTEM_PROMPT,
             user_prefix=prefix_text,
         )
+        last_stable_prefix = stable_prefix_ids
 
-        if len(rendered_prefix_token_ids) < aligned_shared_prefix_tokens:
-            raise ValueError("rendered RAG shared prefix is shorter than requested token length")
+        if len(stable_prefix_ids) >= target_shared_prefix_tokens:
+            return prefix_text, stable_prefix_ids
 
-        state[group_id] = {
-            "prefix_text": prefix_text,
-            "shared_prefix_tokens": aligned_shared_prefix_tokens,
-            "rendered_prefix_token_ids": rendered_prefix_token_ids,
-        }
-
-    return state
+    raise ValueError(
+        "rendered RAG shared prefix is shorter than requested token length: "
+        f"stable={len(last_stable_prefix)} target={target_shared_prefix_tokens}"
+    )
 
 
 def _render_stable_prompt_prefix_ids(

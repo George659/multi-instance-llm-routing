@@ -181,7 +181,7 @@ async def _execute_batch(
         return []
 
     run_start_perf = time.perf_counter()
-    tasks = [
+    task_to_request = {
         asyncio.create_task(
             _scheduled_send(
                 client=client,
@@ -190,9 +190,10 @@ async def _execute_batch(
                 stream=stream,
                 include_usage=include_usage,
             )
-        )
+        ): request
         for request in requests
-    ]
+    }
+    tasks = list(task_to_request.keys())
 
     done, pending = await asyncio.wait(tasks, timeout=run_duration_limit_sec)
 
@@ -205,6 +206,15 @@ async def _execute_batch(
     for task in done:
         task_result = task.result()
         results.append(task_result)
+    for task in pending:
+        request = task_to_request[task]
+        results.append(
+            _build_timeout_result(
+                request,
+                run_start_perf=run_start_perf,
+                run_duration_limit_sec=run_duration_limit_sec,
+            )
+        )
 
     results.sort(key=lambda result: result.request_id)
     return results
@@ -231,6 +241,27 @@ async def _scheduled_send(
         stream=stream,
         include_usage=include_usage,
     )
+
+
+def _build_timeout_result(
+    request: Request,
+    *,
+    run_start_perf: float,
+    run_duration_limit_sec: float,
+) -> RequestResult:
+    """把超时未完成的请求转成失败结果，保证结果集完整。"""
+
+    result = RequestResult.from_request(
+        request,
+        status="failed",
+        error_type="timeout",
+        error_message=(
+            "request did not complete before max_run_duration_sec elapsed"
+        ),
+    )
+    result.scheduled_at = run_start_perf + request.metadata.arrival_time_offset
+    result.end_at = run_start_perf + run_duration_limit_sec
+    return result
 
 
 def _attach_arrival_offsets(requests: list[Request], offsets: list[float]) -> None:
@@ -346,6 +377,69 @@ def _clone_mapping(data: dict[str, Any]) -> dict[str, Any]:
     return json.loads(json.dumps(data))
 
 
+def _apply_overrides(
+    benchmark_config: dict[str, Any],
+    overrides: list[str] | None,
+) -> dict[str, Any]:
+    """把 CLI 传入的 `key=value` 覆盖项应用到 benchmark 配置。
+
+    约定：
+    - 路径默认相对于 `benchmark` 段，例如 `warmup_requests=5`
+    - 也允许显式写 `benchmark.arrival.request_rate=1.0`
+    """
+
+    if not overrides:
+        return benchmark_config
+
+    updated = _clone_mapping(benchmark_config)
+    benchmark_section = updated.get("benchmark")
+    if not isinstance(benchmark_section, dict):
+        raise ValueError("benchmark config must contain a top-level 'benchmark' mapping")
+
+    for item in overrides:
+        key_path, raw_value = _parse_override_item(item)
+        value = yaml.safe_load(raw_value)
+        normalized_path = (
+            key_path.split(".")[1:] if key_path.startswith("benchmark.") else key_path.split(".")
+        )
+        _set_nested_value(benchmark_section, normalized_path, value)
+
+    return updated
+
+
+def _parse_override_item(item: str) -> tuple[str, str]:
+    """解析单条 `a.b.c=value` 覆盖项。"""
+
+    if "=" not in item:
+        raise ValueError(f"invalid override (expected key=value): {item}")
+    key_path, raw_value = item.split("=", 1)
+    key_path = key_path.strip()
+    if not key_path:
+        raise ValueError(f"invalid override with empty key: {item}")
+    return key_path, raw_value.strip()
+
+
+def _set_nested_value(target: dict[str, Any], path: list[str], value: Any) -> None:
+    """按点路径写入嵌套字典。"""
+
+    if not path:
+        raise ValueError("override path cannot be empty")
+
+    current: dict[str, Any] = target
+    for segment in path[:-1]:
+        existing = current.get(segment)
+        if existing is None:
+            current[segment] = {}
+            existing = current[segment]
+        if not isinstance(existing, dict):
+            raise ValueError(
+                f"cannot apply override through non-mapping segment: {'.'.join(path)}"
+            )
+        current = existing
+
+    current[path[-1]] = value
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     """构建 CLI 参数解析器。"""
 
@@ -357,6 +451,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         required=True,
         help="Path to benchmark.yaml",
     )
+    parser.add_argument(
+        "--override",
+        action="append",
+        default=[],
+        help=(
+            "Override benchmark config with key=value. Paths are relative to the "
+            "benchmark section, e.g. warmup_requests=5 or arrival.request_rate=1.0"
+        ),
+    )
     return parser
 
 
@@ -364,6 +467,7 @@ async def _main_async(args: argparse.Namespace) -> None:
     model_config = _load_yaml(args.model_config)
     workload_config = _load_yaml(args.workload_config)
     benchmark_config = _load_yaml(args.benchmark_config)
+    benchmark_config = _apply_overrides(benchmark_config, args.override)
 
     await run_benchmark(
         model_config=model_config,

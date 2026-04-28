@@ -8,4 +8,4 @@ python -m src.benchmark.runner \
   --benchmark-config configs/benchmark.yaml \
   --override warmup_requests=5 \
   --override measured_requests=20 \
-  --override "arrival.request_rate=1.0"
+  --override "arrival.request_rate=1.0" 
